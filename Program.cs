@@ -1,48 +1,45 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reactive;
 using System.Threading.Tasks;
+using static System.Console;
 
-var bytes = new byte[1];
-var originalMemoryAddress = GetArrayAddress(ref bytes);
-TaskCompletionSource<Unit>? tcs = new();
+var tcs = new TaskCompletionSource<Unit>();
 var wrTcs = new WeakReference(tcs);
 var task = NoFinallyAsync(tcs!.Task);
 var wrTask = new WeakReference(task);
-Console.WriteLine(wrTask.Target != null ? "Task is alive" : "Task is collected");
-Console.WriteLine(wrTcs.Target != null ? "TCS is alive" : "TCS is collected");
 
+void GCCollectAndPulseCheck(string comment, int generation)
+{
+    WriteLine();
+    WriteLine(comment);
+    GC.Collect(generation);
+    WriteLine($"GC.Collect({generation})");
+    WriteLine(wrTask.Target != null ? "Task is alive" : "Task is dead");
+    WriteLine(wrTcs.Target != null ? "TCS is alive" : "TCS is dead");
+}
+
+GCCollectAndPulseCheck("Initial state", 2);
 tcs = null;
-task = null;
 await Task.Delay(100);
-AllocateGarbage(50_000_000);
-GC.Collect();
+GCCollectAndPulseCheck("After delay & tcs = null", 2);
+var garbage = AllocateGarbage(1_000_000);
+task = null;
+GCCollectAndPulseCheck("After allocation & task = null", 0);
+GCCollectAndPulseCheck("Gen 1", 1);
+GCCollectAndPulseCheck("Gen 2", 2);
 
-var newMemoryAddress = GetArrayAddress(ref bytes);
-Console.WriteLine("The byte array " +
-    (originalMemoryAddress == newMemoryAddress ? "didn't move" : "moved"));
-
-Console.WriteLine(wrTask.Target != null ? "Task is alive" : "Task is collected");
-Console.WriteLine(wrTcs.Target != null ? "TCS is alive" : "TCS is collected");
-
-static void AllocateGarbage(int garbageSize)
-{
-    for (var x = 0; x < garbageSize; x++)
-        new object();
-}
-
-static unsafe UIntPtr GetArrayAddress(ref byte[] bytes)
-{
-    fixed (byte* pbytes = bytes)
-        return (UIntPtr) pbytes;
-}
+static List<object> AllocateGarbage(int garbageSize)
+    => Enumerable.Range(0, garbageSize).Select(_ => new object()).ToList();
 
 static async Task NoFinallyAsync(Task dependency)
 {
     try {
-        Console.WriteLine("try");
+        WriteLine("try");
         await dependency;
     }
     finally {
-        Console.WriteLine("finally");
+        WriteLine("finally");
     }
 }
